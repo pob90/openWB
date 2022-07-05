@@ -107,7 +107,7 @@ class rct_id():
             elif self.data_type == rct_data.t_log_ts:
                 ti = struct.unpack(">I", data)[0]
                 if ti == 0:
-                    return ""
+                    return '____-__-__ __:__:__'
                 timestamp = datetime.datetime.fromtimestamp(ti)
                 return timestamp.strftime('%Y-%m-%d %H:%M:%S')
             elif self.data_type == rct_data.t_dump:
@@ -150,7 +150,7 @@ class Frame:
         self.desc_len = 0
 
     # add a rct_id item to a frame
-    def add(self, item):
+    def add(self, item, value = None):
         if type(item) == rct_id:
             if len(item.name) > self.name_len:
                self.name_len = len(item.name)
@@ -159,7 +159,7 @@ class Frame:
 
             self.idList.append(item)
             item.pending = True
-            item.value = None
+            item.value = value
             if item.id > 0:
                 self.pendingCount += 1
 
@@ -412,7 +412,7 @@ class RCT():
             traceback.print_exc(file=sys.stdout)
             frame = inspect.stack()[1]
             module = inspect.getmodule(frame[0])
-            self.errlog('usage:', module.__file__, '[--ip_addr=<host>] [--verbose] [--info] [--port=<portnr>] [--id=0xXXXXXXXX|--name=<string>]')
+            self.errlog('usage:', module.__file__, '[--ip=<host>] [--debug] [--info] [--port=<portnr>] [--id=0xXXXXXXXX|--name=<string>]')
 
 
     # find a table entry by using the 32 bit ID
@@ -438,20 +438,22 @@ class RCT():
         return None
 
     # search in id_tab by name and append a copy of the entry to the passed table tab
-    def add_by_name(self, tab, name):
+    def add_by_name(self, tab, name, value = None):
         for l in self.id_tab:
             if l.name == name:
                 newItem = copy.deepcopy(l)
+                newItem.value = value
                 tab.append(newItem)
                 return newItem
 
         return None
 
     # search in id_tab by id and append a copy of the entry to the passed table tab
-    def add_by_id(self, tab, id):
+    def add_by_id(self, tab, id, value = None):
         for l in self.id_tab:
             if l.id == id:
                 newItem = copy.deepcopy(l)
+                newItem.value = value
                 tab.append(newItem)
                 return newItem
 
@@ -495,6 +497,20 @@ class RCT():
             else:
                 # timeout
                 return
+
+    # send a read request and wait for the response
+    def write(self, idList): 
+        # setup request frame
+        frame = self.read_setup_frame(idList)
+
+        # encode and send request wth all pending id's
+        frame.command = cmd_write
+        stream = frame.encode()
+        if len(stream) == 0:    # nothing to send
+            return #break
+        
+        print(binascii.hexlify(stream))
+        #self.socket.send(stream)
 
     # send a read request and wait for the response
     def read(self, idList): 
@@ -574,6 +590,24 @@ class RCT():
     def infolog(self, *args):
         self.logger.info(' '.join(map(str, args)))
 
+    # feature external battery control
+    # bExternal == true -> external battery power control (see parameter power)
+    # power > 0: discharge battery
+    # power < 0: charge battery
+    # power == 0: battery usage off
+    def battery_power_ctrl(self, bExternal, power = 0):
+        MyTab = []
+        soc_strategy = self.add_by_name(MyTab, 'power_mng.soc_strategy')
+        battery_power_extern = self.add_by_name(MyTab, 'power_mng.battery_power_extern')
+        if bExternal == True:
+            soc_strategy.value = 2
+        else:
+            soc_strategy.value = 4
+
+        battery_power_extern.value = float(power)
+        self.write(MyTab)
+        return
+
     def id_tab_setup(self):
         # add all known id's with name, data type, description and unit to the id table
         self.id_tab.append(rct_id(0x0104EB6A,   0, "rb485.f_grid[2]",                                  rct_data.t_float,   "Grid phase 3 frequency [Hz]"))
@@ -629,7 +663,7 @@ class RCT():
         self.id_tab.append(rct_id(0x0DE3D20D,  51, "battery.status2",                                  rct_data.t_int32,   "Battery extra status"))
         self.id_tab.append(rct_id(0x0DF164DE,  52, "logger.day_eb_log_ts",                             rct_data.t_log_ts,  "logger.day_eb_log_ts"))
         self.id_tab.append(rct_id(0x0DF45696,  53, "io_board.io1_polarity",                            rct_data.t_bool,    "Inverted signal on input I/O 1"))
-        self.id_tab.append(rct_id(0x0E0505B4,  54, "flash_rtc.time_stamp_set",                         rct_data.t_uint32,  "Set date/time"))
+        self.id_tab.append(rct_id(0x0E0505B4,  54, "flash_rtc.time_stamp_set",                         rct_data.t_log_ts,  "Set date/time"))
         self.id_tab.append(rct_id(0x0E4AA301,  55, "battery_placeholder[0].cells_stat[6].u_max.index", rct_data.t_uint8,   "battery_placeholder[0].cells_stat[6].u_max.index"))
         self.id_tab.append(rct_id(0x0E799A56,  56, "io_board.rse_table[0]",                            rct_data.t_float,   "K4..K1: 0000"))
         self.id_tab.append(rct_id(0x0EC64BA7,  57, "battery_placeholder[0].stack_software_version[3]", rct_data.t_uint32,  "Software version stack 3"))
@@ -966,7 +1000,7 @@ class RCT():
         self.id_tab.append(rct_id(0x6E24632E, 388, "battery.cells_stat[5].u_max.time",                 rct_data.t_uint32,  "battery.cells_stat[5].u_max.time"))
         self.id_tab.append(rct_id(0x6E3336A8, 389, "battery_placeholder[0].cells_stat[5].t_max.index", rct_data.t_uint8,   "battery_placeholder[0].cells_stat[5].t_max.index"))
         self.id_tab.append(rct_id(0x6E491B50, 390, "battery.maximum_charge_voltage",                   rct_data.t_float,   "Max. charge voltage [V]"))
-        self.id_tab.append(rct_id(0x6F3876BC, 391, "logger.error_log_time_stamp",                      rct_data.t_int32,   "Time stamp for error log reading"))
+        self.id_tab.append(rct_id(0x6F3876BC, 391, "logger.error_log_time_stamp",                      rct_data.t_log_ts,  "Time stamp for error log reading"))
         self.id_tab.append(rct_id(0x6FB2E2BF, 392, "db.power_board.afi_i150",                          rct_data.t_float,   "AFI 150 mA threshold [A]"))
         self.id_tab.append(rct_id(0x6FD36B32, 393, "rb485.f_wr[1]",                                    rct_data.t_float,   "Power Storage phase 2 frequency [Hz]"))
         self.id_tab.append(rct_id(0x6FF4BD55, 394, "energy.e_ext_month_sum",                           rct_data.t_float,   "energy.e_ext_month_sum"))
@@ -986,7 +1020,7 @@ class RCT():
         self.id_tab.append(rct_id(0x7232F7AF, 408, "nsm.apm",                                          rct_data.t_enum,    "nsm.apm"))
         self.id_tab.append(rct_id(0x7268CE4D, 409, "battery.inv_cmd",                                  rct_data.t_uint32,  "battery.inv_cmd"))
         self.id_tab.append(rct_id(0x72ACC0BF, 410, "logger.minutes_ua_log_ts",                         rct_data.t_log_ts,  "logger.minutes_ua_log_ts"))
-        self.id_tab.append(rct_id(0x7301A5A7, 411, "flash_rtc.time_stamp_factory",                     rct_data.t_uint32,  "Production date"))
+        self.id_tab.append(rct_id(0x7301A5A7, 411, "flash_rtc.time_stamp_factory",                     rct_data.t_log_ts,  "Production date"))
         self.id_tab.append(rct_id(0x73489528, 412, "battery.module_sn[2]",                             rct_data.t_string,  "Module 2 Serial Number"))
         self.id_tab.append(rct_id(0x73E3ED49, 413, "prim_sm.island_max_trials",                        rct_data.t_uint16,  "Max island trials"))
         self.id_tab.append(rct_id(0x742966A6, 414, "db.power_board.afi_i300",                          rct_data.t_float,   "AFI 300 mA threshold [A]"))
@@ -1219,7 +1253,7 @@ class RCT():
         self.id_tab.append(rct_id(0xB55BA2CE, 641, "g_sync.u_sg_avg[0]",                               rct_data.t_float,   "Solar generator A voltage [V]"))
         self.id_tab.append(rct_id(0xB57B59BD, 642, "battery.ah_capacity",                              rct_data.t_float,   "Battery capacity [Ah]"))
         self.id_tab.append(rct_id(0xB5EDA8EC, 643, "battery_placeholder[0].cells_stat[3].u_max.value", rct_data.t_float,   "battery_placeholder[0].cells_stat[3].u_max.value"))
-        self.id_tab.append(rct_id(0xB6623608, 644, "power_mng.bat_next_calib_date",                    rct_data.t_uint32,  "Next battery calibration"))
+        self.id_tab.append(rct_id(0xB6623608, 644, "power_mng.bat_next_calib_date",                    rct_data.t_log_ts,  "Next battery calibration"))
         self.id_tab.append(rct_id(0xB69171C4, 645, "db.power_board.Current_AC_RMS",                    rct_data.t_float,   "db.power_board.Current_AC_RMS"))
         self.id_tab.append(rct_id(0xB70D1703, 646, "battery_placeholder[0].cells_stat[5].u_max.index", rct_data.t_uint8,   "battery_placeholder[0].cells_stat[5].u_max.index"))
         self.id_tab.append(rct_id(0xB76E2B4C, 647, "nsm.cos_phi_const",                                rct_data.t_float,   "Cos phi constant value (positive = overexcited)"))
@@ -1313,7 +1347,7 @@ class RCT():
         self.id_tab.append(rct_id(0xCF096A6B, 735, "battery_placeholder[0].stack_software_version[4]", rct_data.t_uint32,  "Software version stack 4"))
         self.id_tab.append(rct_id(0xD0C47326, 736, "battery.cells_stat[1].t_min.value",                rct_data.t_float,   "battery.cells_stat[1].t_min.value"))
         self.id_tab.append(rct_id(0xD143A391, 737, "can_bus.set_cell_v_t",                             rct_data.t_uint32,  "can_bus.set_cell_v_t"))
-        self.id_tab.append(rct_id(0xD166D94D, 738, "flash_rtc.time_stamp",                             rct_data.t_uint32,  "Actual date/time"))
+        self.id_tab.append(rct_id(0xD166D94D, 738, "flash_rtc.time_stamp",                             rct_data.t_log_ts,  "Actual date/time"))
         self.id_tab.append(rct_id(0xD197CBE0, 739, "power_mng.stop_charge_current",                    rct_data.t_float,   "Stop charge current [A]"))
         self.id_tab.append(rct_id(0xD1DFC969, 740, "power_mng.soc_target_set",                         rct_data.t_float,   "Force SOC target"))
         self.id_tab.append(rct_id(0xD1F9D017, 741, "battery_placeholder[0].cells_stat[4].u_min.time",  rct_data.t_uint32,  "battery_placeholder[0].cells_stat[4].u_min.time"))
@@ -1349,7 +1383,7 @@ class RCT():
         self.id_tab.append(rct_id(0xDCA1CF26, 771, "g_sync.s_ac_sum_lp",                               rct_data.t_float,   "Apparent power [VA]"))
         self.id_tab.append(rct_id(0xDCAC0EA9, 772, "g_sync.i_dr_lp[1]",                                rct_data.t_float,   "Current phase 2 (average) [A]"))
         self.id_tab.append(rct_id(0xDD5930A2, 773, "battery.cells_stat[0].t_min.index",                rct_data.t_uint8,   "battery.cells_stat[0].t_min.index"))
-        self.id_tab.append(rct_id(0xDD90A328, 774, "flash_rtc.time_stamp_update",                      rct_data.t_uint32,  "Last update date"))
+        self.id_tab.append(rct_id(0xDD90A328, 774, "flash_rtc.time_stamp_update",                      rct_data.t_log_ts,  "Last update date"))
         self.id_tab.append(rct_id(0xDDD1C2D0, 775, "svnversion",                                       rct_data.t_string,  "Control software version"))
         self.id_tab.append(rct_id(0xDE17F021, 776, "energy.e_grid_load_year",                          rct_data.t_float,   "Year energy grid load [Wh]"))
         self.id_tab.append(rct_id(0xDE68F62D, 777, "bat_mng_struct.profile_pext",                      rct_data.t_string,  "bat_mng_struct.profile_pext"))

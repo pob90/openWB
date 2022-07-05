@@ -12,6 +12,7 @@ def main(argv: List[str]):
     rct = rct_lib.RCT(argv)
 
     if rct.connect_to_server() == True:
+        #rct.battery_power_ctrl(False, 100)
         try:
             MyTab = []
             for obj in rct.id_tab:
