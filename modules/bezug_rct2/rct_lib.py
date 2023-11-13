@@ -498,19 +498,18 @@ class RCT():
                 # timeout
                 return
 
-    # send a read request and wait for the response
+    # send a write request and wait for the response
     def write(self, idList): 
         # setup request frame
-        frame = self.read_setup_frame(idList)
+        frame = self.write_setup_frame(idList)
 
         # encode and send request wth all pending id's
-        frame.command = cmd_write
         stream = frame.encode()
         if len(stream) == 0:    # nothing to send
             return #break
         
         print(binascii.hexlify(stream))
-        #self.socket.send(stream)
+        self.socket.send(stream)
 
     # send a read request and wait for the response
     def read(self, idList): 
@@ -534,7 +533,7 @@ class RCT():
 
         return frame
 
-    # add all ids to a new frame
+    # add all ids to a new read frame
     def read_setup_frame(self, id):
         frame = Frame(cmd_read)
         if type(id) == list:
@@ -549,6 +548,24 @@ class RCT():
             obj = self.find_by_id(id)
             if obj != None:
                 frame.add(obj)
+
+        return frame
+
+    # add all ids to a new write frame
+    def write_setup_frame(self, id):
+        frame = Frame(cmd_write)
+        if type(id) == list:
+            for item in id:
+                if type(item) == rct_id:
+                    frame.add(item, item.value)
+                else:
+                    obj = self.find_by_id(item)
+                    if obj != None:
+                        frame.add(obj, obj.value)
+        else:
+            obj = self.find_by_id(id)
+            if obj != None:
+                frame.add(obj, obj.value)
 
         return frame
 
@@ -597,12 +614,12 @@ class RCT():
     # power == 0: battery usage off
     def battery_power_ctrl(self, bExternal, power = 0):
         MyTab = []
-        soc_strategy = self.add_by_name(MyTab, 'power_mng.soc_strategy')
         battery_power_extern = self.add_by_name(MyTab, 'power_mng.battery_power_extern')
-        if bExternal == True:
-            soc_strategy.value = 2
-        else:
-            soc_strategy.value = 4
+        # soc_strategy = self.add_by_name(MyTab, 'power_mng.soc_strategy')
+        # if bExternal == True:
+        #     soc_strategy.value = 2
+        # else:
+        #     soc_strategy.value = 4
 
         battery_power_extern.value = float(power)
         self.write(MyTab)
